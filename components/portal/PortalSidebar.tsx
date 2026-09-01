@@ -32,7 +32,7 @@ export function PortalSidebar({ onNavigate }: { onNavigate?: () => void }) {
         <span className="grid size-11 place-items-center rounded-2xl bg-[#6C3CE9] text-white"><GraduationCap /></span>
         <div>
           <p className="font-black text-slate-900">Vivexa Learn</p>
-          <p className="text-xs text-slate-500">{isStaff ? "Teacher Portal" : "Student Portal"}</p>
+          <p className="text-xs text-slate-500">{isStaff ? "Trainer Portal" : "Student Portal"}</p>
         </div>
       </div>
       <nav className="flex-1 space-y-1 overflow-y-auto p-4">

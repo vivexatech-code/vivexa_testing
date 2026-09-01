@@ -19,7 +19,7 @@ export default function DashboardPage() {
     return (
       <div className="space-y-7">
         <section className="rounded-3xl bg-gradient-to-br from-[#6C3CE9] to-indigo-600 p-7 text-white shadow-xl shadow-violet-200 sm:p-9">
-          <p className="text-violet-100">Teacher portal</p>
+          <p className="text-violet-100">Trainer portal</p>
           <h2 className="mt-1 text-3xl font-black">Welcome, {studentData?.fullName}</h2>
           <p className="mt-3 max-w-xl text-sm text-violet-100">Create a live class, copy the OBS stream key, and start teaching inside the Vivexa classroom.</p>
         </section>

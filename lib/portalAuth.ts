@@ -130,7 +130,7 @@ function asStaffSession(user: PortalRequestUser, role: string, extra?: Partial<P
 
 function sessionFromUserDoc(user: PortalRequestUser, staffDoc: { id: string; data(): DocumentData | undefined }): PortalStudentSession {
   const data = staffDoc.data() ?? {};
-  return asStaffSession(user, readAccountRole(data as Record<string, unknown>) || "teacher", {
+  return asStaffSession(user, readAccountRole(data as Record<string, unknown>) || "trainer", {
     docId: staffDoc.id,
     studentId: String(data.staffId ?? data.studentId ?? staffDoc.id),
     email: String(data.email ?? user.email ?? ""),
@@ -155,12 +155,12 @@ export async function requireStaff(request: Request): Promise<PortalStudentSessi
     if (isStaffRole(student.role) || user.claims.admin === true || isStaffRole(claimedRole) || emailIsStaff) {
       return {
         ...student,
-        role: isStaffRole(student.role) ? student.role : claimedRole || (emailIsStaff ? "teacher" : "admin"),
+        role: isStaffRole(student.role) ? student.role : claimedRole || (emailIsStaff ? "trainer" : "admin"),
       };
     }
   } catch {
     if (user.claims.admin === true || isStaffRole(claimedRole) || emailIsStaff) {
-      return asStaffSession(user, claimedRole || (emailIsStaff ? "teacher" : "admin"));
+      return asStaffSession(user, claimedRole || (emailIsStaff ? "trainer" : "admin"));
     }
   }
 

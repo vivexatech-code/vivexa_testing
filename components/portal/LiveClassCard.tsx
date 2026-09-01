@@ -15,7 +15,7 @@ function formatRange(start: string, end: string) {
 
 const labels: Record<string, string> = {
   live: "LIVE",
-  waiting_for_teacher: "WAITING FOR TEACHER",
+  waiting_for_teacher: "WAITING FOR TRAINER",
   upcoming: "UPCOMING",
   completed: "COMPLETED",
   cancelled: "CANCELLED",
@@ -40,7 +40,7 @@ export function LiveClassCard({ item, href }: { item: LiveClassListItem; href: s
           </p>
           <h3 className="mt-1 font-black text-slate-900">{item.title}</h3>
           <p className="mt-1 text-sm text-slate-500">{item.courseTitle || "Course"}{item.subjectName ? ` · ${item.subjectName}` : ""}</p>
-          <p className="mt-1 text-sm text-slate-500">Teacher: {item.teacherName}</p>
+          <p className="mt-1 text-sm text-slate-500">Trainer: {item.teacherName}</p>
           <p className="mt-1 text-xs text-slate-400">{formatRange(item.startTime, item.endTime)}</p>
         </div>
         {item.playbackMode === "legacy" && item.legacyMeetLink ? (

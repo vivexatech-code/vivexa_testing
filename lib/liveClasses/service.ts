@@ -240,7 +240,7 @@ export async function authorizeStudentPlayback(
       return { liveClass, authorization: null, message: "This live class has ended." };
     }
     if (liveClass.uiStatus === "waiting_for_teacher" || !streamId) {
-      return { liveClass, authorization: null, message: "The teacher has not started the live stream yet." };
+      return { liveClass, authorization: null, message: "The trainer has not started the live stream yet." };
     }
     const playback = await getAuthorizedPlayback(streamId);
     return {

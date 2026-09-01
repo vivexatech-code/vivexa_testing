@@ -90,7 +90,7 @@ export default function LiveClassroomPage() {
         <p className="text-sm font-semibold text-violet-100">Vivexa Institute · Live Class</p>
         <h1 className="mt-2 text-3xl font-black">{liveClass?.title || "Classroom"}</h1>
         <p className="mt-2 text-sm text-violet-100">
-          {liveClass?.courseTitle || "Course"} · Teacher: {liveClass?.teacherName || "Vivexa Faculty"}
+          {liveClass?.courseTitle || "Course"} · Trainer: {liveClass?.teacherName || "Vivexa Faculty"}
         </p>
       </header>
 
@@ -101,7 +101,7 @@ export default function LiveClassroomPage() {
         <ClassroomState icon={Radio} title="This class has not started yet." description={payload?.message || "Please come back at the scheduled start time."} />
       )}
       {!loading && liveClass && status === "waiting_for_teacher" && !authorization && (
-        <ClassroomState icon={VideoOff} title="The teacher has not started the live stream yet." description="Stay on this page. The classroom will open automatically when the teacher goes live." tone="live" />
+        <ClassroomState icon={VideoOff} title="The trainer has not started the live stream yet." description="Stay on this page. The classroom will open automatically when the trainer goes live." tone="live" />
       )}
       {!loading && liveClass && status === "cancelled" && (
         <ClassroomState icon={Ban} title="This live class was cancelled." description="Please check your notifications for a rescheduled session." tone="danger" />
@@ -129,7 +129,7 @@ export default function LiveClassroomPage() {
             )}
             <h2 className="text-2xl font-black">{liveClass.title}</h2>
           </div>
-          <p className="mt-3 text-sm text-slate-500">Teacher: {liveClass.teacherName}</p>
+          <p className="mt-3 text-sm text-slate-500">Trainer: {liveClass.teacherName}</p>
           <p className="mt-1 text-sm text-slate-500">
             {new Date(liveClass.startTime).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })}
             {" – "}

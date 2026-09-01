@@ -12,7 +12,7 @@ export default function StaffLayout({ children }: { children: React.ReactNode })
       <div className="rounded-2xl border bg-white p-10 text-center">
         <span className="mx-auto grid size-14 place-items-center rounded-2xl bg-red-50 text-red-600"><Lock /></span>
         <h2 className="mt-4 text-xl font-black">Staff access required</h2>
-        <p className="mt-2 text-sm text-slate-500">This page is for teachers stored in the Firestore users collection with role teacher.</p>
+        <p className="mt-2 text-sm text-slate-500">This page is for trainers stored in the Firestore users collection with role trainer.</p>
       </div>
     );
   }

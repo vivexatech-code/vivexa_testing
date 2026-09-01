@@ -76,8 +76,8 @@ export function studentMayAccessLiveClass(student: AccessStudent, liveClass: Acc
 }
 
 export const STAFF_ROLES = [
-  "admin", "teacher", "staff", "faculty", "superadmin", "instructor",
-  "trainer", "principal", "owner", "director", "coordinator", "management",
+  "trainer", "teacher", "instructor", "faculty",
+  "admin", "staff", "superadmin", "principal", "owner", "director", "coordinator", "management",
 ];
 
 export function readAccountRole(data: Record<string, unknown> | undefined): string {

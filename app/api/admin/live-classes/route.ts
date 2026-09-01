@@ -27,7 +27,7 @@ export async function POST(request: Request) {
     const staff = await requireStaff(request);
     const body = await request.json() as CreateLiveClassInput;
     if (!body.title?.trim() || !body.courseId || !body.teacherName?.trim() || !body.startTime || !body.endTime) {
-      return NextResponse.json({ error: "Title, course, teacher, start time, and end time are required." }, { status: 400 });
+      return NextResponse.json({ error: "Title, course, trainer, start time, and end time are required." }, { status: 400 });
     }
     const created = await createLiveClassRecord(body, staff.uid);
     return NextResponse.json(created, { status: 201 });

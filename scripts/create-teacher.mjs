@@ -22,7 +22,7 @@ function loadEnv() {
 
 loadEnv();
 
-const [email, password, fullName = "Teacher"] = process.argv.slice(2);
+const [email, password, fullName = "Trainer"] = process.argv.slice(2);
 if (!email || !password) {
   console.error('Usage: node scripts/create-teacher.mjs EMAIL PASSWORD "Full Name"');
   process.exit(1);
@@ -53,7 +53,7 @@ await db.collection("users").doc(email).set({
   uid: user.uid,
   email,
   fullName,
-  role: "teacher",
+  role: "trainer",
   status: "active",
   staffId: `TRN-${String(Date.now()).slice(-4)}`,
   mustChangePassword: false,
@@ -61,7 +61,7 @@ await db.collection("users").doc(email).set({
   updatedAt: new Date(),
 }, { merge: true });
 
-console.log("Teacher ready.");
+console.log("Trainer ready.");
 console.log(`Email: ${email}`);
 console.log(`UID:   ${user.uid}`);
 console.log("Login: /portal/login");

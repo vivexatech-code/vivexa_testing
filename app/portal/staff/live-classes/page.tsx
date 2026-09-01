@@ -93,7 +93,7 @@ export default function StaffLiveClassesPage() {
             {courses.map((course) => <option key={course.id} value={course.courseId || course.id}>{course.title}</option>)}
           </select>
           <input name="subjectName" placeholder="Subject" className="rounded-xl border px-3 py-3" />
-          <input name="teacherName" required placeholder="Teacher name" className="rounded-xl border px-3 py-3" />
+          <input name="teacherName" required placeholder="Trainer name" className="rounded-xl border px-3 py-3" />
           <input name="thumbnailUrl" placeholder="Thumbnail URL" className="rounded-xl border px-3 py-3" />
           <input name="startTime" type="datetime-local" required className="rounded-xl border px-3 py-3" />
           <input name="endTime" type="datetime-local" required className="rounded-xl border px-3 py-3" />

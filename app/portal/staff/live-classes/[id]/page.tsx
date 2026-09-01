@@ -58,7 +58,7 @@ export default function StaffLiveClassDetailPage() {
       </section>
       {ingest && (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6">
-          <h3 className="font-black text-amber-950">Teacher OBS setup</h3>
+          <h3 className="font-black text-amber-950">Trainer OBS setup</h3>
           <p className="mt-2 text-sm text-amber-800">{ingest.instructions}</p>
           <p className="mt-4 break-all text-sm"><span className="font-bold">RTMPS URL:</span> {ingest.ingestUrl}</p>
           <p className="mt-2 break-all text-sm"><span className="font-bold">Stream key:</span> {ingest.streamKey}</p>
