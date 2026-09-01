@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Ban, Lock, Radio, VideoOff, WifiOff } from "lucide-react";
 import { ClassroomPlayer } from "@/components/portal/ClassroomPlayer";
+import { YouTubeClassroomPlayer } from "@/components/portal/YouTubeClassroomPlayer";
 import { ClassroomState } from "@/components/portal/ClassroomState";
 import { portalFetch } from "@/lib/portalFetch";
 import type { ClassroomUiStatus, PlaybackAuthorization, RecordingStatus } from "@/types/liveClass";
@@ -112,7 +113,14 @@ export default function LiveClassroomPage() {
       {!loading && liveClass && status === "completed" && liveClass.recordingStatus !== "available" && liveClass.recordingStatus !== "processing" && !authorization && (
         <ClassroomState icon={Ban} title="This live class has ended." description={payload?.message || "No recording is available for this session."} />
       )}
-      {authorization && (
+      {authorization?.protocol === "youtube" && (
+        <YouTubeClassroomPlayer
+          src={authorization.playbackUrl}
+          live={authorization.kind === "live"}
+          title={liveClass?.title}
+        />
+      )}
+      {authorization && authorization.protocol !== "youtube" && (
         <ClassroomPlayer
           src={authorization.playbackUrl}
           poster={liveClass?.thumbnailUrl}

@@ -12,8 +12,9 @@ import {
   getStreamingProviderName,
   getStreamStatus,
 } from "@/lib/streaming";
-import type { CreateLiveClassInput, LiveClass, PlaybackAuthorization, StreamIngestDetails } from "@/types/liveClass";
+import type { CreateLiveClassInput, LiveClass, PlaybackAuthorization, StreamIngestDetails, StreamingProviderName } from "@/types/liveClass";
 import type { StreamConnectionState } from "@/lib/streaming/types";
+import { youtubeEmbedUrl } from "@/lib/youtube";
 
 async function connectionFor(streamId?: string): Promise<StreamConnectionState> {
   if (!streamId) return "unknown";
@@ -33,10 +34,11 @@ export async function loadLiveClass(id: string) {
   }
   const secretSnap = await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(id).get();
   const streamId = secretSnap.exists ? String(secretSnap.data()?.providerStreamId ?? "") : "";
-  const connection = await connectionFor(streamId || undefined);
+  const preview = liveClassFromDoc({ id: doc.id, data: () => doc.data()! }, "unknown");
+  const connection = preview.playbackMode === "youtube" ? "connected" : await connectionFor(streamId || undefined);
   let liveClass = liveClassFromDoc({ id: doc.id, data: () => doc.data()! }, connection);
 
-  if (streamId && liveClass.recordingEnabled && liveClass.recordingStatus !== "available") {
+  if (streamId && liveClass.playbackMode === "secure" && liveClass.recordingEnabled && liveClass.recordingStatus !== "available") {
     try {
       const status = await getStreamStatus(streamId);
       if (status.recordingReady && status.recordingId) {
@@ -73,14 +75,16 @@ export async function listLiveClassesForStudent(student: AccessStudent): Promise
     if (!access.ok) continue;
     const secret = (await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get()).data();
     const resolvedStreamId = String(secret?.providerStreamId ?? data.providerStreamId ?? "");
-    const guessed = computeClassroomStatus({
+    const uiGuess = computeClassroomStatus({
       storedStatus: String(data.status ?? "upcoming"),
       startTime: data.startTime,
       endTime: data.endTime,
       connection: "unknown",
+      playbackMode: String(data.playbackMode ?? ""),
     }).uiStatus;
-    const needsLiveCheck = guessed === "live" || guessed === "waiting_for_teacher";
-    const connection = needsLiveCheck ? await connectionFor(resolvedStreamId || undefined) : "unknown";
+    const isYoutube = data.playbackMode === "youtube" || data.streamingProvider === "youtube" || data.youtubeVideoId;
+    const needsLiveCheck = !isYoutube && (uiGuess === "live" || uiGuess === "waiting_for_teacher");
+    const connection = isYoutube ? "connected" : needsLiveCheck ? await connectionFor(resolvedStreamId || undefined) : "unknown";
     accessible.push(liveClassFromDoc(doc, connection));
   }
 
@@ -92,13 +96,19 @@ export async function listAllLiveClasses(): Promise<LiveClass[]> {
   const snap = await db.collection(LIVE_CLASSES_COLLECTION).orderBy("startTime", "desc").limit(200).get();
   return Promise.all(
     snap.docs.map(async (doc) => {
+      const data = doc.data();
+      const isYoutube = data.playbackMode === "youtube" || data.streamingProvider === "youtube" || data.youtubeVideoId;
+      if (isYoutube) {
+        return liveClassFromDoc(doc, "connected");
+      }
       const secret = await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get();
       const streamId = secret.exists ? String(secret.data()?.providerStreamId ?? "") : "";
       const uiGuess = computeClassroomStatus({
-        storedStatus: String(doc.data().status ?? "upcoming"),
-        startTime: doc.data().startTime,
-        endTime: doc.data().endTime,
+        storedStatus: String(data.status ?? "upcoming"),
+        startTime: data.startTime,
+        endTime: data.endTime,
         connection: "unknown",
+        playbackMode: String(data.playbackMode ?? ""),
       }).uiStatus;
       const connection = uiGuess === "upcoming" || uiGuess === "cancelled" || uiGuess === "completed"
         ? "unknown"
@@ -215,6 +225,31 @@ export async function authorizeStudentPlayback(
     throw Object.assign(new Error("This class uses a legacy external meeting link."), { status: 409 });
   }
 
+  if (liveClass.playbackMode === "youtube") {
+    if (!liveClass.youtubeVideoId) {
+      throw Object.assign(new Error("This class does not have a YouTube video yet."), { status: 400 });
+    }
+    if (liveClass.uiStatus === "cancelled") {
+      return { liveClass, authorization: null, message: "This live class was cancelled." };
+    }
+    if (kind === "live" && liveClass.uiStatus === "upcoming") {
+      return { liveClass, authorization: null, message: "This class has not started yet." };
+    }
+    if (kind === "live" && liveClass.uiStatus === "completed") {
+      if (liveClass.recordingEnabled) {
+        return { liveClass, authorization: youtubeAuthorization(liveClass, "recording"), message: undefined };
+      }
+      return { liveClass, authorization: null, message: "This live class has ended." };
+    }
+    if (kind === "recording") {
+      if (!liveClass.recordingEnabled) {
+        return { liveClass, authorization: null, message: "Recording was not enabled for this class." };
+      }
+      return { liveClass, authorization: youtubeAuthorization(liveClass, "recording") };
+    }
+    return { liveClass, authorization: youtubeAuthorization(liveClass, "live") };
+  }
+
   if (kind === "live") {
     if (liveClass.uiStatus === "cancelled") {
       return { liveClass, authorization: null, message: "This live class was cancelled." };
@@ -279,8 +314,21 @@ export async function authorizeStudentPlayback(
   };
 }
 
-function playbackProvider(liveClass: LiveClass): "cloudflare" | "mux" {
-  return liveClass.streamingProvider === "mux" ? "mux" : "cloudflare";
+function youtubeAuthorization(liveClass: LiveClass, kind: "live" | "recording"): PlaybackAuthorization {
+  return {
+    liveClassId: liveClass.id,
+    kind,
+    protocol: "youtube",
+    playbackUrl: youtubeEmbedUrl(liveClass.youtubeVideoId || "", kind === "live"),
+    expiresAt: new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString(),
+    provider: "youtube",
+  };
+}
+
+function playbackProvider(liveClass: LiveClass): StreamingProviderName {
+  if (liveClass.streamingProvider === "mux") return "mux";
+  if (liveClass.streamingProvider === "youtube" || liveClass.playbackMode === "youtube") return "youtube";
+  return "cloudflare";
 }
 
 export async function endLiveClass(id: string) {

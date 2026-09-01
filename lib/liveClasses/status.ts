@@ -21,6 +21,7 @@ export function computeClassroomStatus(input: {
   startTime: unknown;
   endTime: unknown;
   connection?: StreamConnectionState;
+  playbackMode?: string;
   now?: Date;
 }): { status: LiveClassStatus; uiStatus: ClassroomUiStatus } {
   if (input.storedStatus === "cancelled") {
@@ -43,7 +44,7 @@ export function computeClassroomStatus(input: {
     return { status: "completed", uiStatus: "completed" };
   }
 
-  if (input.connection === "connected") {
+  if (input.playbackMode === "youtube" || input.connection === "connected") {
     return { status: "live", uiStatus: "live" };
   }
 

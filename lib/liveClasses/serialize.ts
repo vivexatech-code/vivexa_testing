@@ -11,6 +11,12 @@ export function toIso(value: unknown): string {
   return date ? date.toISOString() : "";
 }
 
+function readPlaybackMode(data: DocumentData): PlaybackMode {
+  if (data.playbackMode === "youtube" || data.streamingProvider === "youtube" || data.youtubeVideoId) return "youtube";
+  if (data.playbackMode === "legacy") return "legacy";
+  return "secure";
+}
+
 export function liveClassFromDoc(
   doc: QueryDocumentSnapshot | { id: string; data(): DocumentData },
   connection: StreamConnectionState = "unknown",
@@ -18,11 +24,13 @@ export function liveClassFromDoc(
   const data = doc.data();
   const startTime = toIso(data.startTime);
   const endTime = toIso(data.endTime);
+  const playbackMode = readPlaybackMode(data);
   const computed = computeClassroomStatus({
     storedStatus: String(data.status ?? "upcoming"),
     startTime: data.startTime,
     endTime: data.endTime,
     connection,
+    playbackMode,
   });
 
   return {
@@ -43,11 +51,13 @@ export function liveClassFromDoc(
     endTime,
     status: computed.status,
     uiStatus: computed.uiStatus,
-    playbackMode: (data.playbackMode === "legacy" ? "legacy" : "secure") as PlaybackMode,
+    playbackMode,
     streamingProvider: data.streamingProvider as StreamingProviderName | undefined,
     recordingEnabled: Boolean(data.recordingEnabled),
-    recordingStatus: (data.recordingStatus ?? (data.recordingEnabled ? "processing" : "disabled")) as RecordingStatus,
-    recordingId: data.recordingId ? String(data.recordingId) : undefined,
+    recordingStatus: (data.recordingStatus ?? (data.recordingEnabled ? (playbackMode === "youtube" ? "available" : "processing") : "disabled")) as RecordingStatus,
+    recordingId: data.recordingId ? String(data.recordingId) : data.youtubeVideoId ? String(data.youtubeVideoId) : undefined,
+    youtubeVideoId: data.youtubeVideoId ? String(data.youtubeVideoId) : undefined,
+    youtubeUrl: data.youtubeUrl ? String(data.youtubeUrl) : undefined,
     legacyMeetLink: data.legacyMeetLink || data.meetLink || data.liveClassLink || data.link ? String(data.legacyMeetLink || data.meetLink || data.liveClassLink || data.link) : undefined,
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
@@ -55,8 +65,12 @@ export function liveClassFromDoc(
   };
 }
 
-export function publicLiveClass(liveClass: LiveClass): Omit<LiveClass, "allowedStudentIds"> & { allowedStudentIds?: undefined } {
-  const { allowedStudentIds: _hidden, ...rest } = liveClass;
+export function publicLiveClass(liveClass: LiveClass): Omit<LiveClass, "allowedStudentIds" | "youtubeUrl" | "youtubeVideoId"> & {
+  allowedStudentIds?: undefined;
+  youtubeUrl?: undefined;
+  youtubeVideoId?: undefined;
+} {
+  const { allowedStudentIds: _hidden, youtubeUrl: _url, youtubeVideoId: _id, ...rest } = liveClass;
   return rest;
 }
 

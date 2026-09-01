@@ -13,10 +13,10 @@ export type ClassroomUiStatus = (typeof CLASSROOM_UI_STATUSES)[number];
 export const RECORDING_STATUSES = ["disabled", "processing", "available", "failed"] as const;
 export type RecordingStatus = (typeof RECORDING_STATUSES)[number];
 
-export const STREAMING_PROVIDERS = ["cloudflare", "mux"] as const;
+export const STREAMING_PROVIDERS = ["cloudflare", "mux", "youtube"] as const;
 export type StreamingProviderName = (typeof STREAMING_PROVIDERS)[number];
 
-export const PLAYBACK_MODES = ["secure", "legacy"] as const;
+export const PLAYBACK_MODES = ["secure", "legacy", "youtube"] as const;
 export type PlaybackMode = (typeof PLAYBACK_MODES)[number];
 
 export interface ClassAccessRules {
@@ -48,6 +48,8 @@ export interface LiveClass {
   recordingEnabled: boolean;
   recordingStatus: RecordingStatus;
   recordingId?: string;
+  youtubeVideoId?: string;
+  youtubeUrl?: string;
   /** Legacy external meeting URL. Used only for old classes. */
   legacyMeetLink?: string;
   createdAt?: string;
@@ -68,7 +70,7 @@ export interface LiveClassSecret {
 export interface PlaybackAuthorization {
   liveClassId: string;
   kind: "live" | "recording";
-  protocol: "hls";
+  protocol: "hls" | "youtube";
   playbackUrl: string;
   expiresAt: string;
   provider: StreamingProviderName;
@@ -104,5 +106,6 @@ export interface CreateLiveClassInput {
   endTime: string;
   recordingEnabled?: boolean;
   playbackMode?: PlaybackMode;
+  youtubeUrl?: string;
   legacyMeetLink?: string;
 }
