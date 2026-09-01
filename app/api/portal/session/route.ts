@@ -9,7 +9,14 @@ export async function GET(request: Request) {
   try {
     try {
       const staff = await requireStaff(request);
-      return NextResponse.json({ isStaff: true, role: staff.role, fullName: staff.fullName });
+      return NextResponse.json({
+        isStaff: true,
+        role: staff.role,
+        fullName: staff.fullName,
+        email: staff.email,
+        status: staff.status,
+        studentId: staff.studentId,
+      });
     } catch (error) {
       const { status } = (error && typeof error === "object" && "status" in error)
         ? { status: Number((error as { status: number }).status) }

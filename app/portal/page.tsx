@@ -5,13 +5,39 @@ import { Bell, BookOpen, CalendarClock, CheckCircle2, ClipboardList, IndianRupee
 import { usePortalAuth } from "@/context/PortalAuthContext";
 import { usePortalData } from "@/context/PortalDataContext";
 import { useAuthorizedLiveClasses } from "@/hooks/useAuthorizedLiveClasses";
+import { isStaffRole } from "@/lib/liveClasses/access";
 import { StatCard } from "@/components/portal/StatCard";
 import { ProgressBar } from "@/components/portal/ProgressBar";
 import { CardSkeleton } from "@/components/portal/Skeleton";
 
 export default function DashboardPage() {
-  const { studentData } = usePortalAuth(); const data = usePortalData(); const live = useAuthorizedLiveClasses();
+  const { studentData } = usePortalAuth();
+  const data = usePortalData();
+  const live = useAuthorizedLiveClasses();
   const liveNow = live.now[0];
+  if (isStaffRole(studentData?.role)) {
+    return (
+      <div className="space-y-7">
+        <section className="rounded-3xl bg-gradient-to-br from-[#6C3CE9] to-indigo-600 p-7 text-white shadow-xl shadow-violet-200 sm:p-9">
+          <p className="text-violet-100">Teacher portal</p>
+          <h2 className="mt-1 text-3xl font-black">Welcome, {studentData?.fullName}</h2>
+          <p className="mt-3 max-w-xl text-sm text-violet-100">Create a live class, copy the OBS stream key, and start teaching inside the Vivexa classroom.</p>
+        </section>
+        <section className="grid gap-4 sm:grid-cols-2">
+          <Link href="/portal/staff/live-classes" className="rounded-2xl border bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg">
+            <span className="grid size-12 place-items-center rounded-xl bg-violet-50 text-[#6C3CE9]"><Radio /></span>
+            <h3 className="mt-4 text-lg font-black">Schedule a class</h3>
+            <p className="mt-2 text-sm text-slate-500">Set the course, date, and time. You will receive the OBS ingest URL and stream key.</p>
+          </Link>
+          <div className="rounded-2xl border bg-white p-6 shadow-sm">
+            <span className="grid size-12 place-items-center rounded-xl bg-red-50 text-red-600"><CalendarClock /></span>
+            <h3 className="mt-4 text-lg font-black">How to go live</h3>
+            <p className="mt-2 text-sm text-slate-500">Open Schedule Classes, create the session, then in OBS use Server = RTMPS URL and Stream Key = the private key shown only to you.</p>
+          </div>
+        </section>
+      </div>
+    );
+  }
   if (data.dataLoading) return <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 8 }, (_, i) => <CardSkeleton key={i} />)}</div>;
   return <div className="space-y-7">
     <section className="rounded-3xl bg-gradient-to-br from-[#6C3CE9] to-indigo-600 p-7 text-white shadow-xl shadow-violet-200 sm:p-9"><p className="text-violet-100">Welcome back,</p><h2 className="mt-1 text-3xl font-black">{studentData?.fullName} 👋</h2><p className="mt-3 max-w-xl text-sm text-violet-100">Keep building momentum. Every class, test, and practice session takes you closer to your goals.</p></section>

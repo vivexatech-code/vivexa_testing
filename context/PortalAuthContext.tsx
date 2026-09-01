@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User, type Unsubscribe } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import { readAccountRole } from "@/lib/liveClasses/access";
+import { isStaffRole, readAccountRole } from "@/lib/liveClasses/access";
 import type { CourseEnrollment, StudentProfile } from "@/types/student";
 
 interface PortalAuthValue {
@@ -24,7 +24,7 @@ function enrollments(data: Record<string, unknown>): CourseEnrollment[] {
 function profileFrom(uid: string, recordId: string, data: Record<string, unknown>, email: string): StudentProfile {
   const list = enrollments(data);
   return {
-    uid, studentId: String(data.studentId ?? recordId), fullName: String(data.fullName ?? "Student"),
+    uid, studentId: String(data.studentId ?? data.staffId ?? recordId), fullName: String(data.fullName ?? "Student"),
     email: String(data.email ?? email), phone: String(data.phone ?? ""), course: String(data.course ?? list.map((c) => c.title).join(", ")),
     courseId: data.courseId ? String(data.courseId) : undefined, batch: data.batch ? String(data.batch) : undefined,
     rollNumber: data.rollNumber ? String(data.rollNumber) : undefined, parentName: data.parentName ? String(data.parentName) : undefined,
@@ -33,6 +33,31 @@ function profileFrom(uid: string, recordId: string, data: Record<string, unknown
     role: readAccountRole(data), mustChangePassword: Boolean(data.mustChangePassword), avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
     enrolledCourses: list, enrolledCourse: list[0] ?? null,
     preferences: { inAppNotifications: (data.preferences as { inAppNotifications?: boolean } | undefined)?.inAppNotifications ?? true, emailAlerts: (data.preferences as { emailAlerts?: boolean } | undefined)?.emailAlerts ?? false },
+  };
+}
+
+async function loadStaffSession(current: User): Promise<Partial<StudentProfile> | null> {
+  const token = await current.getIdToken();
+  const response = await fetch("/api/portal/session", {
+    headers: { Authorization: `Bearer ${token}` },
+    cache: "no-store",
+  });
+  if (!response.ok) return null;
+  const data = await response.json() as { isStaff?: boolean; role?: string; fullName?: string; email?: string; status?: string; studentId?: string };
+  if (!data.isStaff) return null;
+  return {
+    uid: current.uid,
+    studentId: data.studentId || current.uid,
+    fullName: data.fullName || current.displayName || "Teacher",
+    email: data.email || current.email || "",
+    phone: "",
+    course: "",
+    status: data.status || "Active",
+    role: data.role || "teacher",
+    mustChangePassword: false,
+    enrolledCourses: [],
+    enrolledCourse: null,
+    preferences: { inAppNotifications: true, emailAlerts: false },
   };
 }
 
@@ -50,6 +75,15 @@ export function PortalAuthProvider({ children }: { children: React.ReactNode }) 
       setLoading(true);
       void (async () => {
         try {
+          const staff = await loadStaffSession(current).catch(() => null);
+          if (cancelled) return;
+          if (staff && isStaffRole(staff.role)) {
+            setStudentDocId(null);
+            setStudentData(staff as StudentProfile);
+            setLoading(false);
+            return;
+          }
+
           const byUid = await getDocs(query(collection(db, "students"), where("uid", "==", current.uid)));
           let ref = byUid.docs[0]?.ref;
           if (!ref) {

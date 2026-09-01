@@ -96,6 +96,23 @@ export async function getPortalStudent(request: Request): Promise<PortalStudentS
   };
 }
 
+async function findInstituteUser(uid: string, email?: string) {
+  const db = getAdminDb();
+  const byUid = await db.collection("users").where("uid", "==", uid).limit(1).get();
+  if (!byUid.empty) return byUid.docs[0];
+
+  if (email) {
+    const byDocId = await db.collection("users").doc(email).get();
+    if (byDocId.exists) return byDocId;
+    const byEmail = await db.collection("users").where("email", "==", email).limit(1).get();
+    if (!byEmail.empty) return byEmail.docs[0];
+  }
+
+  const byUidDoc = await db.collection("users").doc(uid).get();
+  if (byUidDoc.exists) return byUidDoc;
+  return null;
+}
+
 function asStaffSession(user: PortalRequestUser, role: string, extra?: Partial<PortalStudentSession>): PortalStudentSession {
   return {
     uid: user.uid,
@@ -111,10 +128,27 @@ function asStaffSession(user: PortalRequestUser, role: string, extra?: Partial<P
   };
 }
 
+function sessionFromUserDoc(user: PortalRequestUser, staffDoc: { id: string; data(): DocumentData | undefined }): PortalStudentSession {
+  const data = staffDoc.data() ?? {};
+  return asStaffSession(user, readAccountRole(data as Record<string, unknown>) || "teacher", {
+    docId: staffDoc.id,
+    studentId: String(data.staffId ?? data.studentId ?? staffDoc.id),
+    email: String(data.email ?? user.email ?? ""),
+    fullName: String(data.fullName ?? user.email ?? "Staff"),
+    status: String(data.status ?? "Active"),
+  });
+}
+
 export async function requireStaff(request: Request): Promise<PortalStudentSession> {
   const user = await getRequestUser(request);
   const claimedRole = String(user.claims.role ?? user.claims.adminRole ?? "");
   const emailIsStaff = isStaffEmail(user.email);
+
+  const instituteUser = await findInstituteUser(user.uid, user.email);
+  if (instituteUser) {
+    const staff = sessionFromUserDoc(user, instituteUser);
+    if (isStaffRole(staff.role) || emailIsStaff) return staff;
+  }
 
   try {
     const student = await getPortalStudent(request);

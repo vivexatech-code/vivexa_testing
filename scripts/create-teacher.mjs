@@ -49,15 +49,16 @@ const user = existing
   ? await auth.updateUser(existing.uid, { password, displayName: fullName, emailVerified: true })
   : await auth.createUser({ email, password, displayName: fullName, emailVerified: true });
 
-await db.collection("students").doc(user.uid).set({
+await db.collection("users").doc(email).set({
   uid: user.uid,
-  studentId: user.uid,
   email,
   fullName,
   role: "teacher",
-  status: "Active",
+  status: "active",
+  staffId: `TRN-${String(Date.now()).slice(-4)}`,
   mustChangePassword: false,
-  enrolledCourses: [],
+  assignedBatchIds: [],
+  updatedAt: new Date(),
 }, { merge: true });
 
 console.log("Teacher ready.");
