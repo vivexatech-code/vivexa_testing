@@ -1,0 +1,108 @@
+@import "tailwindcss";
+
+/* 1. Define Tailwind Theme Extensions */
+@theme {
+  --color-cyan: #00e6f7;
+  --color-blue: #3672f8;
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-display: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+/* 2. Light theme variables */
+:root {
+  color-scheme: light only;
+  --background: #f8fafc;
+  --foreground: #0f172a;
+  --card-bg: #ffffff;
+  --border-color: #e2e8f0;
+  --nav-bg: rgba(248, 250, 252, 0.92);
+}
+
+/* 3. Base HTML Elements */
+@layer base {
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  html {
+    color-scheme: light only;
+    scrollbar-width: thin;
+  }
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+    border-radius: 4px;
+  }
+}
+
+/* 4. Custom Components (Using Tailwind @apply) */
+@layer components {
+  /* 
+    Best Practice: If you are using React/Next.js, put these classes 
+    directly on the <header> tag instead of keeping them here. 
+    But if you must keep them in CSS, use @apply like this:
+  */
+  
+  .header {
+    @apply fixed top-0 left-0 w-full z-[1000] py-[15px] bg-transparent backdrop-blur-[10px] transition-all duration-300 ease-in-out;
+  }
+
+  .header.scrolled {
+    background-color: var(--nav-bg);
+    @apply py-[10px] shadow-[0_10px_30px_-10px_rgba(0,0,0,0.2)];
+  }
+
+  .nav-container {
+    @apply flex justify-between items-center;
+  }
+
+  .logo {
+    font-family: var(--font-display);
+    @apply text-[1.8rem] font-black tracking-wide text-inherit;
+  }
+
+  .nav-links {
+    @apply flex items-center list-none gap-6;
+  }
+
+  .nav-links a {
+    @apply text-[0.9rem] font-medium transition-colors hover:text-[var(--color-cyan)];
+  }
+}
+
+.grecaptcha-badge {
+  visibility: hidden;
+}
+
+/* Marquee infinite scroll */
+@keyframes notice-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.notice-marquee-track {
+  animation: notice-marquee 35s linear infinite;
+}
+
+.notice-marquee-track:hover {
+  animation-play-state: paused;
+}
+
+/* Gradient text utility */
+.text-gradient {
+  background-image: linear-gradient(90deg, #2563eb, #06b6d4);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}

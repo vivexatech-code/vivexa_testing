@@ -1,0 +1,368 @@
+import { FieldValue } from "firebase-admin/firestore";
+import { getAdminDb } from "@/lib/firebaseAdmin";
+import { studentMayAccessLiveClass, type AccessStudent } from "@/lib/liveClasses/access";
+import { liveClassFromDoc, LIVE_CLASSES_COLLECTION, LIVE_CLASS_SECRETS_COLLECTION, publicLiveClass, timestampFromIso } from "@/lib/liveClasses/serialize";
+import { computeClassroomStatus } from "@/lib/liveClasses/status";
+import {
+  createLiveStream,
+  endLiveStream,
+  getAuthorizedPlayback,
+  getAuthorizedRecordingPlayback,
+  getStreamIngestDetails,
+  getStreamingProviderName,
+  getStreamStatus,
+} from "@/lib/streaming";
+import type { CreateLiveClassInput, LiveClass, PlaybackAuthorization, StreamIngestDetails } from "@/types/liveClass";
+import type { StreamConnectionState } from "@/lib/streaming/types";
+
+async function connectionFor(streamId?: string): Promise<StreamConnectionState> {
+  if (!streamId) return "unknown";
+  try {
+    const status = await getStreamStatus(streamId);
+    return status.connection;
+  } catch {
+    return "unknown";
+  }
+}
+
+export async function loadLiveClass(id: string) {
+  const db = getAdminDb();
+  const doc = await db.collection(LIVE_CLASSES_COLLECTION).doc(id).get();
+  if (!doc.exists) {
+    throw Object.assign(new Error("Live class not found."), { status: 404 });
+  }
+  const secretSnap = await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(id).get();
+  const streamId = secretSnap.exists ? String(secretSnap.data()?.providerStreamId ?? "") : "";
+  const connection = await connectionFor(streamId || undefined);
+  let liveClass = liveClassFromDoc({ id: doc.id, data: () => doc.data()! }, connection);
+
+  if (streamId && liveClass.recordingEnabled && liveClass.recordingStatus !== "available") {
+    try {
+      const status = await getStreamStatus(streamId);
+      if (status.recordingReady && status.recordingId) {
+        await doc.ref.update({
+          recordingId: status.recordingId,
+          recordingStatus: "available",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        liveClass = { ...liveClass, recordingId: status.recordingId, recordingStatus: "available" };
+      } else if (status.recordingFailed) {
+        await doc.ref.update({ recordingStatus: "failed", updatedAt: FieldValue.serverTimestamp() });
+        liveClass = { ...liveClass, recordingStatus: "failed" };
+      }
+    } catch {
+      // Keep stored recording status if the provider lookup fails.
+    }
+  }
+
+  return { liveClass, streamId, secret: secretSnap.data() ?? null, ref: doc.ref };
+}
+
+export async function listLiveClassesForStudent(student: AccessStudent): Promise<LiveClass[]> {
+  const db = getAdminDb();
+  const snap = await db.collection(LIVE_CLASSES_COLLECTION).orderBy("startTime", "desc").limit(200).get();
+  const accessible: LiveClass[] = [];
+
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    const access = studentMayAccessLiveClass(student, {
+      courseId: String(data.courseId ?? ""),
+      batchIds: Array.isArray(data.batchIds) ? data.batchIds.map(String) : [],
+      allowedStudentIds: Array.isArray(data.allowedStudentIds) ? data.allowedStudentIds.map(String) : [],
+    });
+    if (!access.ok) continue;
+    const secret = (await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get()).data();
+    const resolvedStreamId = String(secret?.providerStreamId ?? data.providerStreamId ?? "");
+    const guessed = computeClassroomStatus({
+      storedStatus: String(data.status ?? "upcoming"),
+      startTime: data.startTime,
+      endTime: data.endTime,
+      connection: "unknown",
+    }).uiStatus;
+    const needsLiveCheck = guessed === "live" || guessed === "waiting_for_teacher";
+    const connection = needsLiveCheck ? await connectionFor(resolvedStreamId || undefined) : "unknown";
+    accessible.push(liveClassFromDoc(doc, connection));
+  }
+
+  return accessible;
+}
+
+export async function listAllLiveClasses(): Promise<LiveClass[]> {
+  const db = getAdminDb();
+  const snap = await db.collection(LIVE_CLASSES_COLLECTION).orderBy("startTime", "desc").limit(200).get();
+  return Promise.all(
+    snap.docs.map(async (doc) => {
+      const secret = await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get();
+      const streamId = secret.exists ? String(secret.data()?.providerStreamId ?? "") : "";
+      const uiGuess = computeClassroomStatus({
+        storedStatus: String(doc.data().status ?? "upcoming"),
+        startTime: doc.data().startTime,
+        endTime: doc.data().endTime,
+        connection: "unknown",
+      }).uiStatus;
+      const connection = uiGuess === "upcoming" || uiGuess === "cancelled" || uiGuess === "completed"
+        ? "unknown"
+        : await connectionFor(streamId || undefined);
+      return liveClassFromDoc(doc, connection);
+    }),
+  );
+}
+
+export async function createLiveClassRecord(input: CreateLiveClassInput, createdBy: string) {
+  const start = timestampFromIso(input.startTime);
+  const end = timestampFromIso(input.endTime);
+  if (end.toMillis() <= start.toMillis()) {
+    throw Object.assign(new Error("End time must be after start time."), { status: 400 });
+  }
+
+  const db = getAdminDb();
+  const ref = db.collection(LIVE_CLASSES_COLLECTION).doc();
+  const playbackMode = input.playbackMode === "legacy" ? "legacy" : "secure";
+  const recordingEnabled = input.recordingEnabled !== false && playbackMode === "secure";
+  const provider = getStreamingProviderName();
+
+  let streamId = "";
+  let ingest: StreamIngestDetails | null = null;
+
+  if (playbackMode === "secure") {
+    const stream = await createLiveStream({
+      liveClassId: ref.id,
+      title: input.title,
+      recordingEnabled,
+    });
+    streamId = stream.streamId;
+    ingest = {
+      provider: stream.provider,
+      protocol: "rtmps",
+      ingestUrl: stream.ingestUrl,
+      streamKey: stream.streamKey,
+      srtUrl: stream.srtUrl,
+      srtPassphrase: stream.srtPassphrase,
+      instructions: "In OBS, set Service to Custom, paste the ingest URL as Server, and paste the stream key. Never share these credentials with students.",
+    };
+    await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(ref.id).set({
+      liveClassId: ref.id,
+      providerStreamId: stream.streamId,
+      playbackId: stream.playbackId ?? stream.streamId,
+      ingestUrl: stream.ingestUrl,
+      streamKey: stream.streamKey,
+      srtUrl: stream.srtUrl ?? "",
+      srtPassphrase: stream.srtPassphrase ?? "",
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  }
+
+  await ref.set({
+    title: input.title.trim(),
+    courseId: input.courseId,
+    courseTitle: input.courseTitle ?? "",
+    subjectId: input.subjectId ?? "",
+    subjectName: input.subjectName ?? "",
+    teacherId: input.teacherId ?? "",
+    teacherName: input.teacherName.trim(),
+    batchIds: input.batchIds ?? [],
+    allowedStudentIds: input.allowedStudentIds ?? [],
+    description: input.description ?? "",
+    thumbnailUrl: input.thumbnailUrl ?? "",
+    scheduledDate: start,
+    startTime: start,
+    endTime: end,
+    status: "upcoming",
+    playbackMode,
+    streamingProvider: playbackMode === "secure" ? provider : null,
+    recordingEnabled,
+    recordingStatus: recordingEnabled ? "processing" : "disabled",
+    recordingId: "",
+    legacyMeetLink: input.legacyMeetLink ?? "",
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+    createdBy,
+  });
+
+  const created = await loadLiveClass(ref.id);
+  return { liveClass: created.liveClass, ingest };
+}
+
+export async function getIngestForStaff(id: string): Promise<StreamIngestDetails> {
+  const { liveClass, streamId } = await loadLiveClass(id);
+  if (liveClass.playbackMode !== "secure" || !streamId) {
+    throw Object.assign(new Error("This class does not have secure ingest credentials."), { status: 400 });
+  }
+  const details = await getStreamIngestDetails(streamId);
+  return {
+    provider: details.provider,
+    protocol: "rtmps",
+    ingestUrl: details.ingestUrl,
+    streamKey: details.streamKey,
+    srtUrl: details.srtUrl,
+    srtPassphrase: details.srtPassphrase,
+    instructions: "Configure OBS with this RTMPS server and stream key. Students never receive these values.",
+  };
+}
+
+export async function authorizeStudentPlayback(
+  student: AccessStudent,
+  liveClassId: string,
+  kind: "live" | "recording" = "live",
+): Promise<{ liveClass: LiveClass; authorization: PlaybackAuthorization | null; message?: string }> {
+  const { liveClass, streamId } = await loadLiveClass(liveClassId);
+  const access = studentMayAccessLiveClass(student, liveClass);
+  if (!access.ok) {
+    throw Object.assign(new Error(access.reason), { status: 403 });
+  }
+
+  if (liveClass.playbackMode === "legacy") {
+    throw Object.assign(new Error("This class uses a legacy external meeting link."), { status: 409 });
+  }
+
+  if (kind === "live") {
+    if (liveClass.uiStatus === "cancelled") {
+      return { liveClass, authorization: null, message: "This live class was cancelled." };
+    }
+    if (liveClass.uiStatus === "upcoming") {
+      return { liveClass, authorization: null, message: "This class has not started yet." };
+    }
+    if (liveClass.uiStatus === "completed") {
+      if (liveClass.recordingStatus === "available" && liveClass.recordingId) {
+        const playback = await getAuthorizedRecordingPlayback(liveClass.recordingId);
+        return {
+          liveClass,
+          authorization: {
+            liveClassId,
+            kind: "recording",
+            protocol: "hls",
+            playbackUrl: playback.playbackUrl,
+            expiresAt: playback.expiresAt.toISOString(),
+            provider: playbackProvider(liveClass),
+          },
+        };
+      }
+      return { liveClass, authorization: null, message: "This live class has ended." };
+    }
+    if (liveClass.uiStatus === "waiting_for_teacher" || !streamId) {
+      return { liveClass, authorization: null, message: "The teacher has not started the live stream yet." };
+    }
+    const playback = await getAuthorizedPlayback(streamId);
+    return {
+      liveClass,
+      authorization: {
+        liveClassId,
+        kind: "live",
+        protocol: "hls",
+        playbackUrl: playback.playbackUrl,
+        expiresAt: playback.expiresAt.toISOString(),
+        provider: playbackProvider(liveClass),
+      },
+    };
+  }
+
+  if (liveClass.recordingStatus === "disabled") {
+    return { liveClass, authorization: null, message: "Recording was not enabled for this class." };
+  }
+  if (liveClass.recordingStatus === "processing" || !liveClass.recordingId) {
+    return { liveClass, authorization: null, message: "The class recording is being processed." };
+  }
+  if (liveClass.recordingStatus === "failed") {
+    return { liveClass, authorization: null, message: "The class recording could not be processed." };
+  }
+  const playback = await getAuthorizedRecordingPlayback(liveClass.recordingId);
+  return {
+    liveClass,
+    authorization: {
+      liveClassId,
+      kind: "recording",
+      protocol: "hls",
+      playbackUrl: playback.playbackUrl,
+      expiresAt: playback.expiresAt.toISOString(),
+      provider: playbackProvider(liveClass),
+    },
+  };
+}
+
+function playbackProvider(liveClass: LiveClass): "cloudflare" | "mux" {
+  return liveClass.streamingProvider === "mux" ? "mux" : "cloudflare";
+}
+
+export async function endLiveClass(id: string) {
+  const { liveClass, streamId, ref } = await loadLiveClass(id);
+  if (streamId) {
+    await endLiveStream(streamId).catch(() => undefined);
+    try {
+      const status = await getStreamStatus(streamId);
+      await ref.update({
+        status: "completed",
+        recordingId: status.recordingId ?? liveClass.recordingId ?? "",
+        recordingStatus: status.recordingReady ? "available" : liveClass.recordingEnabled ? "processing" : "disabled",
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } catch {
+      await ref.update({ status: "completed", updatedAt: FieldValue.serverTimestamp() });
+    }
+  } else {
+    await ref.update({ status: "completed", updatedAt: FieldValue.serverTimestamp() });
+  }
+  return (await loadLiveClass(id)).liveClass;
+}
+
+export async function updateLiveClass(id: string, patch: Partial<CreateLiveClassInput> & { status?: string }) {
+  const db = getAdminDb();
+  const ref = db.collection(LIVE_CLASSES_COLLECTION).doc(id);
+  const snap = await ref.get();
+  if (!snap.exists) throw Object.assign(new Error("Live class not found."), { status: 404 });
+
+  const updates: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
+  if (patch.title) updates.title = patch.title.trim();
+  if (patch.description !== undefined) updates.description = patch.description;
+  if (patch.thumbnailUrl !== undefined) updates.thumbnailUrl = patch.thumbnailUrl;
+  if (patch.teacherName) updates.teacherName = patch.teacherName.trim();
+  if (patch.subjectName !== undefined) updates.subjectName = patch.subjectName;
+  if (patch.courseTitle !== undefined) updates.courseTitle = patch.courseTitle;
+  if (patch.batchIds) updates.batchIds = patch.batchIds;
+  if (patch.allowedStudentIds) updates.allowedStudentIds = patch.allowedStudentIds;
+  if (patch.startTime) updates.startTime = timestampFromIso(patch.startTime);
+  if (patch.endTime) updates.endTime = timestampFromIso(patch.endTime);
+  if (patch.status === "cancelled") updates.status = "cancelled";
+
+  await ref.update(updates);
+  return (await loadLiveClass(id)).liveClass;
+}
+
+export function toStudentLiveClass(liveClass: LiveClass) {
+  return {
+    ...publicLiveClass(liveClass),
+    canJoin: liveClass.uiStatus === "live" || liveClass.uiStatus === "waiting_for_teacher",
+  };
+}
+
+export async function applyProviderWebhook(payload: {
+  eventType?: string;
+  inputId?: string;
+  videoUid?: string;
+  readyToStream?: boolean;
+}) {
+  const db = getAdminDb();
+  const inputId = payload.inputId;
+  if (!inputId) return;
+
+  const secrets = await db.collection(LIVE_CLASS_SECRETS_COLLECTION).where("providerStreamId", "==", inputId).limit(1).get();
+  if (secrets.empty) return;
+  const liveClassId = secrets.docs[0].id;
+  const ref = db.collection(LIVE_CLASSES_COLLECTION).doc(liveClassId);
+  const event = payload.eventType ?? "";
+
+  if (event.includes("connected")) {
+    await ref.update({ status: "live", updatedAt: FieldValue.serverTimestamp() });
+    return;
+  }
+  if (event.includes("disconnected")) {
+    await ref.update({ updatedAt: FieldValue.serverTimestamp() });
+    return;
+  }
+  if (payload.videoUid) {
+    await ref.update({
+      recordingId: payload.videoUid,
+      recordingStatus: payload.readyToStream === false ? "processing" : "available",
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  }
+}
