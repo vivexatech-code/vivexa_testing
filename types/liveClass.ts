@@ -21,7 +21,10 @@ export type PlaybackMode = (typeof PLAYBACK_MODES)[number];
 
 export interface ClassAccessRules {
   courseId: string;
+  courseTitle?: string;
+  courseIds: string[];
   batchIds: string[];
+  batchName?: string;
   allowedStudentIds: string[];
 }
 
@@ -30,11 +33,13 @@ export interface LiveClass {
   title: string;
   courseId: string;
   courseTitle?: string;
+  courseIds?: string[];
   subjectId?: string;
   subjectName?: string;
   teacherId?: string;
   teacherName: string;
   batchIds: string[];
+  batchName?: string;
   allowedStudentIds: string[];
   description?: string;
   thumbnailUrl?: string;

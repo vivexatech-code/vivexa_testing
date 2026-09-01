@@ -16,6 +16,53 @@ import type { CreateLiveClassInput, LiveClass, PlaybackAuthorization, StreamInge
 import type { StreamConnectionState } from "@/lib/streaming/types";
 import { youtubeEmbedUrl } from "@/lib/youtube";
 
+async function loadAccessIndexes(db: ReturnType<typeof getAdminDb>) {
+  const [coursesSnap, batchesSnap] = await Promise.all([
+    db.collection("courses").get(),
+    db.collection("batches").get(),
+  ]);
+
+  const courseAliases = new Map<string, string[]>();
+  for (const doc of coursesSnap.docs) {
+    const data = doc.data();
+    const aliases = [doc.id, data.courseId, data.title].map((value) => String(value ?? "").trim()).filter(Boolean);
+    for (const key of aliases) {
+      courseAliases.set(key, [...new Set([...(courseAliases.get(key) ?? []), ...aliases])]);
+    }
+  }
+
+  const batchAliases = new Map<string, { keys: string[]; studentIds: string[] }>();
+  for (const doc of batchesSnap.docs) {
+    const data = doc.data();
+    const keys = [doc.id, data.batchId, data.name].map((value) => String(value ?? "").trim()).filter(Boolean);
+    const studentIds = Array.isArray(data.studentIds) ? data.studentIds.map(String) : [];
+    const record = { keys: [...new Set(keys)], studentIds };
+    for (const key of record.keys) batchAliases.set(key, record);
+  }
+
+  return { courseAliases, batchAliases };
+}
+
+function extrasForClass(
+  data: { courseId?: unknown; courseTitle?: unknown; batchIds?: unknown; batchName?: unknown },
+  indexes: Awaited<ReturnType<typeof loadAccessIndexes>>,
+) {
+  const courseKeys = [
+    data.courseId,
+    data.courseTitle,
+    ...(Array.isArray((data as { courseIds?: unknown }).courseIds) ? (data as { courseIds: unknown[] }).courseIds : []),
+  ].map((value) => String(value ?? "").trim()).filter(Boolean);
+  const courseAliases = [...new Set(courseKeys.flatMap((key) => indexes.courseAliases.get(key) ?? [key]))];
+  const batchIds = Array.isArray(data.batchIds) ? data.batchIds.map(String) : [];
+  if (data.batchName) batchIds.push(String(data.batchName));
+  const matchedBatches = batchIds.map((id) => indexes.batchAliases.get(id)).filter(Boolean);
+  return {
+    courseAliases,
+    batchAliases: [...new Set(matchedBatches.flatMap((item) => item!.keys))],
+    batchStudentIds: [...new Set(matchedBatches.flatMap((item) => item!.studentIds))],
+  };
+}
+
 async function connectionFor(streamId?: string): Promise<StreamConnectionState> {
   if (!streamId) return "unknown";
   try {
@@ -60,20 +107,39 @@ export async function loadLiveClass(id: string) {
   return { liveClass, streamId, secret: secretSnap.data() ?? null, ref: doc.ref };
 }
 
+export async function assertStudentCanAccess(student: AccessStudent, liveClass: LiveClass) {
+  const extras = extrasForClass(liveClass, await loadAccessIndexes(getAdminDb()));
+  const access = studentMayAccessLiveClass(student, liveClass, extras);
+  if (!access.ok) {
+    throw Object.assign(new Error(access.reason), { status: 403 });
+  }
+}
+
 export async function listLiveClassesForStudent(student: AccessStudent): Promise<LiveClass[]> {
   const db = getAdminDb();
-  const snap = await db.collection(LIVE_CLASSES_COLLECTION).orderBy("startTime", "desc").limit(200).get();
+  let snap;
+  try {
+    snap = await db.collection(LIVE_CLASSES_COLLECTION).orderBy("startTime", "desc").limit(200).get();
+  } catch {
+    snap = await db.collection(LIVE_CLASSES_COLLECTION).limit(200).get();
+  }
+  const indexes = await loadAccessIndexes(db);
   const accessible: LiveClass[] = [];
 
   for (const doc of snap.docs) {
     const data = doc.data();
+    const extras = extrasForClass(data, indexes);
     const access = studentMayAccessLiveClass(student, {
       courseId: String(data.courseId ?? ""),
+      courseTitle: data.courseTitle ? String(data.courseTitle) : undefined,
+      courseIds: Array.isArray(data.courseIds) ? data.courseIds.map(String) : [],
       batchIds: Array.isArray(data.batchIds) ? data.batchIds.map(String) : [],
+      batchName: data.batchName ? String(data.batchName) : undefined,
       allowedStudentIds: Array.isArray(data.allowedStudentIds) ? data.allowedStudentIds.map(String) : [],
-    });
+    }, extras);
     if (!access.ok) continue;
-    const secret = (await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get()).data();
+    const isYoutube = data.playbackMode === "youtube" || data.streamingProvider === "youtube" || data.youtubeVideoId;
+    const secret = isYoutube ? undefined : (await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get()).data();
     const resolvedStreamId = String(secret?.providerStreamId ?? data.providerStreamId ?? "");
     const uiGuess = computeClassroomStatus({
       storedStatus: String(data.status ?? "upcoming"),
@@ -82,7 +148,6 @@ export async function listLiveClassesForStudent(student: AccessStudent): Promise
       connection: "unknown",
       playbackMode: String(data.playbackMode ?? ""),
     }).uiStatus;
-    const isYoutube = data.playbackMode === "youtube" || data.streamingProvider === "youtube" || data.youtubeVideoId;
     const needsLiveCheck = !isYoutube && (uiGuess === "live" || uiGuess === "waiting_for_teacher");
     const connection = isYoutube ? "connected" : needsLiveCheck ? await connectionFor(resolvedStreamId || undefined) : "unknown";
     accessible.push(liveClassFromDoc(doc, connection));
@@ -216,7 +281,9 @@ export async function authorizeStudentPlayback(
   kind: "live" | "recording" = "live",
 ): Promise<{ liveClass: LiveClass; authorization: PlaybackAuthorization | null; message?: string }> {
   const { liveClass, streamId } = await loadLiveClass(liveClassId);
-  const access = studentMayAccessLiveClass(student, liveClass);
+  const indexes = await loadAccessIndexes(getAdminDb());
+  const extras = extrasForClass(liveClass, indexes);
+  const access = studentMayAccessLiveClass(student, liveClass, extras);
   if (!access.ok) {
     throw Object.assign(new Error(access.reason), { status: 403 });
   }

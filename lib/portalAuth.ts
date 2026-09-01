@@ -90,6 +90,7 @@ export async function getPortalStudent(request: Request): Promise<PortalStudentS
     fullName: String(data.fullName ?? "Student"),
     status: String(data.status ?? "Active"),
     courseId: data.courseId ? String(data.courseId) : undefined,
+    course: data.course ? String(data.course) : undefined,
     batch: data.batch ? String(data.batch) : undefined,
     role: readAccountRole(data as Record<string, unknown>),
     enrolledCourses: enrollments(data),

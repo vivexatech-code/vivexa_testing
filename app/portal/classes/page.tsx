@@ -77,6 +77,9 @@ export default function ClassesPage() {
         <section className="space-y-4">
           <h3 className="flex items-center gap-2 font-black text-red-700"><Radio size={18} /> Live now</h3>
           {live.loading && <CardSkeleton />}
+          {live.error && (
+            <p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{live.error}</p>
+          )}
           {live.now.map((item) => <LiveClassCard key={item.id} item={item} href={`/portal/live-classes/${item.id}`} />)}
           {legacyLive.map((item) => (
             <article key={item.id} className="rounded-2xl border border-red-200 bg-white p-5 shadow-sm">
