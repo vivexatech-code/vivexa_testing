@@ -3,6 +3,7 @@ import { getPortalStudent } from "@/lib/portalAuth";
 import { jsonError, routeParam } from "@/lib/api/respond";
 import { assertStudentCanAccess, loadLiveClass, toStudentLiveClass } from "@/lib/liveClasses/service";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> | { id: string } }) {

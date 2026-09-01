@@ -39,7 +39,19 @@ export async function getRequestUser(request: Request): Promise<PortalRequestUse
 }
 
 function enrollments(data: DocumentData): CourseEnrollment[] {
-  if (Array.isArray(data.enrolledCourses)) return data.enrolledCourses as CourseEnrollment[];
+  if (Array.isArray(data.enrolledCourses)) {
+    return data.enrolledCourses
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const course = item as CourseEnrollment;
+        return {
+          ...course,
+          courseId: String(course.courseId ?? ""),
+          title: String(course.title ?? ""),
+        };
+      })
+      .filter((item): item is CourseEnrollment => Boolean(item?.courseId || item?.title));
+  }
   const legacy = data.enrolledCourse as CourseEnrollment | undefined;
   if (legacy?.title) {
     return [{ ...legacy, courseId: legacy.courseId || String(data.courseId ?? "primary") }];
@@ -178,9 +190,17 @@ export async function requireStaff(request: Request): Promise<PortalStudentSessi
 }
 
 export function httpError(error: unknown): { status: number; message: string } {
-  if (error && typeof error === "object" && "status" in error && typeof (error as { status: unknown }).status === "number") {
-    return { status: (error as { status: number }).status, message: error instanceof Error ? error.message : "Request failed." };
-  }
-  if (error instanceof Error) return { status: 500, message: error.message };
-  return { status: 500, message: "Request failed." };
+  const rawStatus = error && typeof error === "object" && "status" in error
+    ? Number((error as { status?: unknown }).status)
+    : NaN;
+  const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500;
+  const message =
+    error instanceof Error && error.message
+      ? error.message
+      : error && typeof error === "object" && "message" in error && (error as { message?: unknown }).message
+        ? String((error as { message: unknown }).message)
+        : typeof error === "string"
+          ? error
+          : "Request failed.";
+  return { status, message };
 }

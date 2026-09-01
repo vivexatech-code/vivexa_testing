@@ -108,57 +108,82 @@ export async function loadLiveClass(id: string) {
 }
 
 export async function assertStudentCanAccess(student: AccessStudent, liveClass: LiveClass) {
-  const extras = extrasForClass(liveClass, await loadAccessIndexes(getAdminDb()));
+  let indexes: Awaited<ReturnType<typeof loadAccessIndexes>>;
+  try {
+    indexes = await loadAccessIndexes(getAdminDb());
+  } catch {
+    indexes = { courseAliases: new Map(), batchAliases: new Map() };
+  }
+  const extras = extrasForClass(liveClass, indexes);
   const access = studentMayAccessLiveClass(student, liveClass, extras);
   if (!access.ok) {
     throw Object.assign(new Error(access.reason), { status: 403 });
   }
 }
 
-export async function listLiveClassesForStudent(student: AccessStudent): Promise<LiveClass[]> {
+async function queryLiveClasses() {
   const db = getAdminDb();
-  let snap;
   try {
-    snap = await db.collection(LIVE_CLASSES_COLLECTION).orderBy("startTime", "desc").limit(200).get();
-  } catch {
-    snap = await db.collection(LIVE_CLASSES_COLLECTION).limit(200).get();
+    return await db.collection(LIVE_CLASSES_COLLECTION).orderBy("startTime", "desc").limit(200).get();
+  } catch (error) {
+    console.error("live_classes orderBy startTime failed, falling back", error);
+    return db.collection(LIVE_CLASSES_COLLECTION).limit(200).get();
   }
-  const indexes = await loadAccessIndexes(db);
+}
+
+export async function listLiveClassesForStudent(student: AccessStudent): Promise<LiveClass[]> {
+  try {
+  const db = getAdminDb();
+  const snap = await queryLiveClasses();
+  let indexes: Awaited<ReturnType<typeof loadAccessIndexes>>;
+  try {
+    indexes = await loadAccessIndexes(db);
+  } catch (error) {
+    console.error("Failed to load course/batch aliases", error);
+    indexes = { courseAliases: new Map(), batchAliases: new Map() };
+  }
   const accessible: LiveClass[] = [];
 
   for (const doc of snap.docs) {
-    const data = doc.data();
-    const extras = extrasForClass(data, indexes);
-    const access = studentMayAccessLiveClass(student, {
-      courseId: String(data.courseId ?? ""),
-      courseTitle: data.courseTitle ? String(data.courseTitle) : undefined,
-      courseIds: Array.isArray(data.courseIds) ? data.courseIds.map(String) : [],
-      batchIds: Array.isArray(data.batchIds) ? data.batchIds.map(String) : [],
-      batchName: data.batchName ? String(data.batchName) : undefined,
-      allowedStudentIds: Array.isArray(data.allowedStudentIds) ? data.allowedStudentIds.map(String) : [],
-    }, extras);
-    if (!access.ok) continue;
-    const isYoutube = data.playbackMode === "youtube" || data.streamingProvider === "youtube" || data.youtubeVideoId;
-    const secret = isYoutube ? undefined : (await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get()).data();
-    const resolvedStreamId = String(secret?.providerStreamId ?? data.providerStreamId ?? "");
-    const uiGuess = computeClassroomStatus({
-      storedStatus: String(data.status ?? "upcoming"),
-      startTime: data.startTime,
-      endTime: data.endTime,
-      connection: "unknown",
-      playbackMode: String(data.playbackMode ?? ""),
-    }).uiStatus;
-    const needsLiveCheck = !isYoutube && (uiGuess === "live" || uiGuess === "waiting_for_teacher");
-    const connection = isYoutube ? "connected" : needsLiveCheck ? await connectionFor(resolvedStreamId || undefined) : "unknown";
-    accessible.push(liveClassFromDoc(doc, connection));
+    try {
+      const data = doc.data() ?? {};
+      const extras = extrasForClass(data, indexes);
+      const access = studentMayAccessLiveClass(student, {
+        courseId: String(data.courseId ?? ""),
+        courseTitle: data.courseTitle ? String(data.courseTitle) : undefined,
+        courseIds: Array.isArray(data.courseIds) ? data.courseIds.map(String) : [],
+        batchIds: Array.isArray(data.batchIds) ? data.batchIds.map(String) : [],
+        batchName: data.batchName ? String(data.batchName) : undefined,
+        allowedStudentIds: Array.isArray(data.allowedStudentIds) ? data.allowedStudentIds.map(String) : [],
+      }, extras);
+      if (!access.ok) continue;
+      const isYoutube = data.playbackMode === "youtube" || data.streamingProvider === "youtube" || data.youtubeVideoId;
+      const secret = isYoutube ? undefined : (await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get()).data();
+      const resolvedStreamId = String(secret?.providerStreamId ?? data.providerStreamId ?? "");
+      const uiGuess = computeClassroomStatus({
+        storedStatus: String(data.status ?? "upcoming"),
+        startTime: data.startTime,
+        endTime: data.endTime,
+        connection: "unknown",
+        playbackMode: String(data.playbackMode ?? ""),
+      }).uiStatus;
+      const needsLiveCheck = !isYoutube && (uiGuess === "live" || uiGuess === "waiting_for_teacher");
+      const connection = isYoutube ? "connected" : needsLiveCheck ? await connectionFor(resolvedStreamId || undefined) : "unknown";
+      accessible.push(liveClassFromDoc(doc, connection));
+    } catch (error) {
+      console.error(`Skipping live class ${doc.id}`, error);
+    }
   }
 
   return accessible;
+  } catch (error) {
+    console.error("listLiveClassesForStudent failed", error);
+    return [];
+  }
 }
 
 export async function listAllLiveClasses(): Promise<LiveClass[]> {
-  const db = getAdminDb();
-  const snap = await db.collection(LIVE_CLASSES_COLLECTION).orderBy("startTime", "desc").limit(200).get();
+  const snap = await queryLiveClasses();
   return Promise.all(
     snap.docs.map(async (doc) => {
       const data = doc.data();
@@ -166,7 +191,7 @@ export async function listAllLiveClasses(): Promise<LiveClass[]> {
       if (isYoutube) {
         return liveClassFromDoc(doc, "connected");
       }
-      const secret = await db.collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get();
+      const secret = await getAdminDb().collection(LIVE_CLASS_SECRETS_COLLECTION).doc(doc.id).get();
       const streamId = secret.exists ? String(secret.data()?.providerStreamId ?? "") : "";
       const uiGuess = computeClassroomStatus({
         storedStatus: String(data.status ?? "upcoming"),

@@ -18,14 +18,14 @@ export function useAuthorizedLiveClasses(pollMs = 20000) {
 
   const reload = useCallback(async () => {
     try {
-      const payload = await portalFetch("/api/portal/live-classes") as unknown as LiveClassPayload;
+      const payload = await portalFetch("/api/portal/live-classes") as unknown as LiveClassPayload & { error?: string };
       setData({
         liveClasses: payload.liveClasses ?? [],
         now: payload.now ?? [],
         upcoming: payload.upcoming ?? [],
         recorded: payload.recorded ?? [],
       });
-      setError("");
+      setError(payload.error ?? "");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to load live classes.");
     } finally {

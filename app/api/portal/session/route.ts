@@ -3,6 +3,7 @@ import { getPortalStudent, requireStaff } from "@/lib/portalAuth";
 import { jsonError } from "@/lib/api/respond";
 import { isStaffRole } from "@/lib/liveClasses/access";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {

@@ -12,9 +12,15 @@ export async function portalFetch(input: string, init: RequestInit = {}) {
     },
     cache: "no-store",
   });
-  const data = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (!response.ok) {
-    throw new Error(String(data.error || "Request failed."));
+  const data = await response.text();
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = data ? JSON.parse(data) as Record<string, unknown> : {};
+  } catch {
+    parsed = {};
   }
-  return data;
+  if (!response.ok) {
+    throw new Error(String(parsed.error || parsed.message || `Request failed (${response.status})`));
+  }
+  return parsed;
 }

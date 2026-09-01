@@ -5,6 +5,7 @@ import { jsonError } from "@/lib/api/respond";
 import { getAdminDb } from "@/lib/firebaseAdmin";
 import { listLiveClassesForStudent } from "@/lib/liveClasses/service";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type YouTubeVideo = {

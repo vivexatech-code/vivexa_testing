@@ -49,20 +49,22 @@ function intersects(left: Set<string>, right: Iterable<string>): boolean {
 }
 
 export function studentCourseIds(student: AccessStudent): string[] {
-  const ids = student.enrolledCourses.flatMap((course) => [
+  const courses = Array.isArray(student.enrolledCourses) ? student.enrolledCourses.filter(Boolean) : [];
+  const ids = courses.flatMap((course) => [
     course.courseId,
     (course as { id?: string }).id,
     course.title,
   ]);
   if (student.courseId) ids.push(student.courseId);
-  if ("course" in student && student.course) ids.push(String(student.course));
+  if (student.course) ids.push(String(student.course));
   return [...new Set(ids.map(token).filter(Boolean))];
 }
 
 export function studentBatchIds(student: AccessStudent): string[] {
+  const courses = Array.isArray(student.enrolledCourses) ? student.enrolledCourses.filter(Boolean) : [];
   const values = [
     student.batch,
-    ...student.enrolledCourses.flatMap((course) => [
+    ...courses.flatMap((course) => [
       course.batchId,
       course.batch,
       (course as { batchName?: string }).batchName,
