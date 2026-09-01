@@ -2,8 +2,9 @@
 
 import { createContext, useContext, useEffect, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User, type Unsubscribe } from "firebase/auth";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, onSnapshot, query, where } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { readAccountRole } from "@/lib/liveClasses/access";
 import type { CourseEnrollment, StudentProfile } from "@/types/student";
 
 interface PortalAuthValue {
@@ -20,6 +21,21 @@ function enrollments(data: Record<string, unknown>): CourseEnrollment[] {
   return [];
 }
 
+function profileFrom(uid: string, recordId: string, data: Record<string, unknown>, email: string): StudentProfile {
+  const list = enrollments(data);
+  return {
+    uid, studentId: String(data.studentId ?? recordId), fullName: String(data.fullName ?? "Student"),
+    email: String(data.email ?? email), phone: String(data.phone ?? ""), course: String(data.course ?? list.map((c) => c.title).join(", ")),
+    courseId: data.courseId ? String(data.courseId) : undefined, batch: data.batch ? String(data.batch) : undefined,
+    rollNumber: data.rollNumber ? String(data.rollNumber) : undefined, parentName: data.parentName ? String(data.parentName) : undefined,
+    status: String(data.status ?? "Active"), address: data.address ? String(data.address) : undefined,
+    qualification: data.qualification ? String(data.qualification) : undefined, joinDate: data.joinDate ? String(data.joinDate) : undefined,
+    role: readAccountRole(data), mustChangePassword: Boolean(data.mustChangePassword), avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
+    enrolledCourses: list, enrolledCourse: list[0] ?? null,
+    preferences: { inAppNotifications: (data.preferences as { inAppNotifications?: boolean } | undefined)?.inAppNotifications ?? true, emailAlerts: (data.preferences as { emailAlerts?: boolean } | undefined)?.emailAlerts ?? false },
+  };
+}
+
 export function PortalAuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [studentDocId, setStudentDocId] = useState<string | null>(null);
@@ -27,29 +43,37 @@ export function PortalAuthProvider({ children }: { children: React.ReactNode }) 
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     let stopStudent: Unsubscribe = () => {};
+    let cancelled = false;
     const stopAuth = onAuthStateChanged(auth, (current) => {
       stopStudent(); setUser(current);
       if (!current) { setStudentDocId(null); setStudentData(null); setLoading(false); return; }
       setLoading(true);
-      stopStudent = onSnapshot(query(collection(db, "students"), where("uid", "==", current.uid)), (snap) => {
-        if (snap.empty) { setStudentDocId(null); setStudentData(null); setLoading(false); return; }
-        const record = snap.docs[0]; const data = record.data(); const list = enrollments(data);
-        setStudentDocId(record.id);
-        setStudentData({
-          uid: current.uid, studentId: String(data.studentId ?? record.id), fullName: String(data.fullName ?? "Student"),
-          email: String(data.email ?? current.email ?? ""), phone: String(data.phone ?? ""), course: String(data.course ?? list.map((c) => c.title).join(", ")),
-          courseId: data.courseId ? String(data.courseId) : undefined, batch: data.batch ? String(data.batch) : undefined,
-          rollNumber: data.rollNumber ? String(data.rollNumber) : undefined, parentName: data.parentName ? String(data.parentName) : undefined,
-          status: String(data.status ?? "Active"), address: data.address ? String(data.address) : undefined,
-          qualification: data.qualification ? String(data.qualification) : undefined, joinDate: data.joinDate ? String(data.joinDate) : undefined,
-          role: String(data.role ?? "student"), mustChangePassword: Boolean(data.mustChangePassword), avatarUrl: data.avatarUrl ? String(data.avatarUrl) : undefined,
-          enrolledCourses: list, enrolledCourse: list[0] ?? null,
-          preferences: { inAppNotifications: data.preferences?.inAppNotifications ?? true, emailAlerts: data.preferences?.emailAlerts ?? false },
-        });
-        setLoading(false);
-      }, () => { setStudentDocId(null); setStudentData(null); setLoading(false); });
+      void (async () => {
+        try {
+          const byUid = await getDocs(query(collection(db, "students"), where("uid", "==", current.uid)));
+          let ref = byUid.docs[0]?.ref;
+          if (!ref) {
+            const byId = await getDoc(doc(db, "students", current.uid));
+            if (byId.exists()) ref = byId.ref;
+          }
+          if (!ref && current.email) {
+            const byEmail = await getDocs(query(collection(db, "students"), where("email", "==", current.email)));
+            ref = byEmail.docs[0]?.ref;
+          }
+          if (cancelled) return;
+          if (!ref) { setStudentDocId(null); setStudentData(null); setLoading(false); return; }
+          stopStudent = onSnapshot(ref, (record) => {
+            if (!record.exists()) { setStudentDocId(null); setStudentData(null); setLoading(false); return; }
+            setStudentDocId(record.id);
+            setStudentData(profileFrom(current.uid, record.id, record.data(), current.email ?? ""));
+            setLoading(false);
+          }, () => { setStudentDocId(null); setStudentData(null); setLoading(false); });
+        } catch {
+          if (!cancelled) { setStudentDocId(null); setStudentData(null); setLoading(false); }
+        }
+      })();
     });
-    return () => { stopAuth(); stopStudent(); };
+    return () => { cancelled = true; stopAuth(); stopStudent(); };
   }, []);
   async function login(email: string, password: string) { await signInWithEmailAndPassword(auth, email.trim(), password); }
   async function logout() { setStudentDocId(null); setStudentData(null); await signOut(auth); }

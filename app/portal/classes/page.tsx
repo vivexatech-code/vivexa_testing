@@ -1,12 +1,14 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
+import Link from "next/link";
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
 import { CalendarClock, Radio } from "lucide-react";
 import { db } from "@/lib/firebase";
 import { usePortalAuth } from "@/context/PortalAuthContext";
 import { usePortalData } from "@/context/PortalDataContext";
 import { useAuthorizedLiveClasses } from "@/hooks/useAuthorizedLiveClasses";
+import { useStaffAccess } from "@/hooks/useStaffAccess";
 import { LiveClassCard } from "@/components/portal/LiveClassCard";
 import { EmptyState } from "@/components/portal/EmptyState";
 import { CardSkeleton } from "@/components/portal/Skeleton";
@@ -24,6 +26,7 @@ export default function ClassesPage() {
   const { studentData } = usePortalAuth();
   const data = usePortalData();
   const live = useAuthorizedLiveClasses();
+  const isStaff = useStaffAccess();
   const [courseId, setCourseId] = useState(data.enrolledCourse?.courseId ?? "");
   const [sent, setSent] = useState(false);
 
@@ -59,9 +62,16 @@ export default function ClassesPage() {
   return (
     <div className="grid gap-6 xl:grid-cols-3">
       <section className="space-y-8 xl:col-span-2">
-        <div>
-          <h2 className="text-2xl font-black">Classes</h2>
-          <p className="mt-1 text-sm text-slate-500">Join live sessions inside the Vivexa classroom.</p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 className="text-2xl font-black">Classes</h2>
+            <p className="mt-1 text-sm text-slate-500">Join live sessions inside the Vivexa classroom.</p>
+          </div>
+          {isStaff && (
+            <Link href="/portal/staff/live-classes" className="rounded-xl bg-[#6C3CE9] px-4 py-2.5 text-sm font-bold text-white">
+              Schedule a class
+            </Link>
+          )}
         </div>
 
         <section className="space-y-4">

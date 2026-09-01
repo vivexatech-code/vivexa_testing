@@ -1,7 +1,7 @@
 import type { DocumentData } from "firebase-admin/firestore";
 import type { CourseEnrollment } from "@/types/student";
 import { getAdminAuth, getAdminDb, isFirebaseAdminConfigured } from "@/lib/firebaseAdmin";
-import { isStaffRole, type AccessStudent } from "@/lib/liveClasses/access";
+import { isStaffEmail, isStaffRole, readAccountRole, type AccessStudent } from "@/lib/liveClasses/access";
 
 export interface PortalStudentSession extends AccessStudent {
   email: string;
@@ -60,15 +60,28 @@ function enrollments(data: DocumentData): CourseEnrollment[] {
   return [];
 }
 
+async function findStudentDoc(uid: string, email?: string) {
+  const db = getAdminDb();
+  const byUid = await db.collection("students").where("uid", "==", uid).limit(1).get();
+  if (!byUid.empty) return byUid.docs[0];
+
+  const byId = await db.collection("students").doc(uid).get();
+  if (byId.exists) return byId;
+
+  if (email) {
+    const byEmail = await db.collection("students").where("email", "==", email).limit(1).get();
+    if (!byEmail.empty) return byEmail.docs[0];
+  }
+  return null;
+}
+
 export async function getPortalStudent(request: Request): Promise<PortalStudentSession> {
   const user = await getRequestUser(request);
-  const db = getAdminDb();
-  const snap = await db.collection("students").where("uid", "==", user.uid).limit(1).get();
-  if (snap.empty) {
+  const doc = await findStudentDoc(user.uid, user.email);
+  if (!doc) {
     throw Object.assign(new Error("No student profile is linked to this account."), { status: 403 });
   }
-  const doc = snap.docs[0];
-  const data = doc.data();
+  const data = doc.data() ?? {};
   return {
     uid: user.uid,
     docId: doc.id,
@@ -78,7 +91,7 @@ export async function getPortalStudent(request: Request): Promise<PortalStudentS
     status: String(data.status ?? "Active"),
     courseId: data.courseId ? String(data.courseId) : undefined,
     batch: data.batch ? String(data.batch) : undefined,
-    role: String(data.role ?? "student"),
+    role: readAccountRole(data as Record<string, unknown>),
     enrolledCourses: enrollments(data),
   };
 }
@@ -101,19 +114,20 @@ function asStaffSession(user: PortalRequestUser, role: string, extra?: Partial<P
 export async function requireStaff(request: Request): Promise<PortalStudentSession> {
   const user = await getRequestUser(request);
   const claimedRole = String(user.claims.role ?? user.claims.adminRole ?? "");
-  if (user.claims.admin === true || isStaffRole(claimedRole)) {
-    try {
-      return await getPortalStudent(request);
-    } catch {
-      return asStaffSession(user, claimedRole || "admin");
-    }
-  }
+  const emailIsStaff = isStaffEmail(user.email);
 
   try {
     const student = await getPortalStudent(request);
-    if (isStaffRole(student.role)) return student;
+    if (isStaffRole(student.role) || user.claims.admin === true || isStaffRole(claimedRole) || emailIsStaff) {
+      return {
+        ...student,
+        role: isStaffRole(student.role) ? student.role : claimedRole || (emailIsStaff ? "teacher" : "admin"),
+      };
+    }
   } catch {
-    // Staff accounts may exist outside the students collection.
+    if (user.claims.admin === true || isStaffRole(claimedRole) || emailIsStaff) {
+      return asStaffSession(user, claimedRole || (emailIsStaff ? "teacher" : "admin"));
+    }
   }
 
   const db = getAdminDb();

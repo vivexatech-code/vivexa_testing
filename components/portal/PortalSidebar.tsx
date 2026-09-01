@@ -4,10 +4,15 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { BookOpen, CalendarDays, ChartNoAxesCombined, CheckCircle2, CircleDollarSign, GraduationCap, Headphones, Home, Library, LogOut, Medal, Settings, UserRound, Video, Bell, ClipboardList, Radio } from "lucide-react";
 import { usePortalAuth } from "@/context/PortalAuthContext";
-import { isStaffRole } from "@/lib/liveClasses/access";
+import { useStaffAccess } from "@/hooks/useStaffAccess";
 
-const nav = [
+const studentNav = [
   ["Dashboard", "/portal", Home], ["My Courses", "/portal/courses", BookOpen], ["Classes", "/portal/classes", Video],
+] as const;
+const staffNav = [
+  ["Schedule Classes", "/portal/staff/live-classes", Radio],
+] as const;
+const restNav = [
   ["Attendance", "/portal/attendance", CheckCircle2], ["Materials", "/portal/materials", Library], ["Recordings", "/portal/recordings", Video],
   ["Exams", "/portal/exams", ClipboardList], ["Results", "/portal/results", ChartNoAxesCombined], ["Certificates", "/portal/certificates", Medal],
   ["Fees", "/portal/fees", CircleDollarSign], ["Calendar", "/portal/calendar", CalendarDays], ["Notifications", "/portal/notifications", Bell],
@@ -17,7 +22,8 @@ const nav = [
 
 export function PortalSidebar({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname(); const { studentData, logout } = usePortalAuth();
-  const items = isStaffRole(studentData?.role) ? [...nav, ["Live Class Admin", "/portal/staff/live-classes", Radio] as const] : nav;
+  const isStaff = useStaffAccess();
+  const items = isStaff ? [...studentNav, ...staffNav, ...restNav] : [...studentNav, ...restNav];
   return (
     <aside className="flex h-full w-72 flex-col border-r border-slate-200 bg-white">
       <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-5">

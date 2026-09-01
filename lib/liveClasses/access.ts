@@ -75,8 +75,27 @@ export function studentMayAccessLiveClass(student: AccessStudent, liveClass: Acc
   return { ok: true };
 }
 
-export const STAFF_ROLES = ["admin", "teacher", "staff", "faculty", "superadmin", "instructor"];
+export const STAFF_ROLES = [
+  "admin", "teacher", "staff", "faculty", "superadmin", "instructor",
+  "trainer", "principal", "owner", "director", "coordinator", "management",
+];
+
+export function readAccountRole(data: Record<string, unknown> | undefined): string {
+  if (!data) return "student";
+  const raw = data.role ?? data.userRole ?? data.accountType ?? data.designation ?? data.userType;
+  return String(raw ?? "student").trim() || "student";
+}
 
 export function isStaffRole(role: string | undefined): boolean {
   return STAFF_ROLES.includes(String(role ?? "").trim().toLowerCase());
+}
+
+export function isStaffEmail(email: string | undefined | null): boolean {
+  const value = String(email ?? "").trim().toLowerCase();
+  if (!value) return false;
+  const allowed = (process.env.PORTAL_STAFF_EMAILS || process.env.NEXT_PUBLIC_PORTAL_STAFF_EMAILS || "")
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
+  return allowed.includes(value);
 }
