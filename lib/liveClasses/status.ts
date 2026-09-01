@@ -27,6 +27,10 @@ export function computeClassroomStatus(input: {
     return { status: "cancelled", uiStatus: "cancelled" };
   }
 
+  if (input.storedStatus === "completed") {
+    return { status: "completed", uiStatus: "completed" };
+  }
+
   const now = input.now ?? new Date();
   const start = parseDate(input.startTime);
   const end = parseDate(input.endTime);
